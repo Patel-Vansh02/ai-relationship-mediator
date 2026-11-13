@@ -2,22 +2,45 @@
 const admin = require("firebase-admin");
 const crypto = require("crypto");
 
-if (!admin.apps.length) {
-  console.log(
-  "Firebase service account present:",
-  Boolean(process.env.FIREBASE_SERVICE_ACCOUNT)
-);
-const serviceAccount = JSON.parse(
-    process.env.FIREBASE_SERVICE_ACCOUNT
-  );
+// ==========================================
+// FIREBASE INITIALIZATION
+// ==========================================
 
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL
-  });
+function getFirebase() {
+  if (!admin.apps.length) {
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+
+    if (!raw) {
+      throw new Error("Missing FIREBASE_SERVICE_ACCOUNT");
+    }
+
+    let serviceAccount;
+
+    try {
+      serviceAccount = JSON.parse(raw);
+    } catch {
+      throw new Error("FIREBASE_SERVICE_ACCOUNT is invalid JSON");
+    }
+
+    if (!process.env.FIREBASE_DATABASE_URL) {
+      throw new Error("Missing FIREBASE_DATABASE_URL");
+    }
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      databaseURL: process.env.FIREBASE_DATABASE_URL
+    });
+  }
+
+  return {
+    auth: admin.auth(),
+    db: admin.database()
+  };
 }
 
-const db = admin.database();
+// ==========================================
+// CONFIGURATION
+// ==========================================
 
 const ROOM_LIFETIME = 7 * 24 * 60 * 60 * 1000;
 const LOCK_LIFETIME = 90 * 1000;
@@ -25,10 +48,12 @@ const LOCK_LIFETIME = 90 * 1000;
 const SYSTEM_PROMPT = `
 You are a neutral, empathetic communication assistant.
 
-Treat both participants fairly. Do not declare a winner,
-make assumptions, diagnose anyone, or take sides.
+Treat both participants fairly.
+Do not declare a winner or take sides.
+Do not make unsupported assumptions or diagnose anyone.
 
 Use these headings:
+
 1. Core Misunderstanding
 2. Each Person's Perspective
 3. Common Ground
@@ -36,24 +61,40 @@ Use these headings:
 
 Offer practical, non-coercive communication suggestions.
 
-If either person describes threats, fear, coercion, or abuse,
-prioritize personal safety. Do not recommend confrontation
-or compromise that could put someone at risk. Encourage
-support from a trusted adult or qualified professional.
+If either person describes threats, fear, coercion,
+or abuse, prioritize personal safety.
+
+Do not recommend confrontation or compromise
+that could put someone at risk.
+
+Encourage support from a trusted adult
+or qualified professional.
 
 Do not claim to determine who is objectively right.
 `;
+
+// ==========================================
+// RESPONSE HELPER
+// ==========================================
 
 function send(res, status, body) {
   return res.status(status).json(body);
 }
 
+// ==========================================
+// MAIN API HANDLER
+// ==========================================
+
 module.exports = async function handler(req, res) {
+
+  // CORS
   const allowedOrigin = process.env.FRONTEND_ORIGIN;
   const origin = req.headers.origin;
 
   if (allowedOrigin && origin !== allowedOrigin) {
-    return send(res, 403, { error: "Origin not allowed" });
+    return send(res, 403, {
+      error: "Origin not allowed"
+    });
   }
 
   if (allowedOrigin) {
@@ -61,7 +102,11 @@ module.exports = async function handler(req, res) {
     res.setHeader("Vary", "Origin");
   }
 
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "POST, OPTIONS"
+  );
+
   res.setHeader(
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization"
@@ -72,37 +117,55 @@ module.exports = async function handler(req, res) {
   }
 
   if (req.method !== "POST") {
-    return send(res, 405, { error: "Method not allowed" });
+    return send(res, 405, {
+      error: "Method not allowed"
+    });
   }
 
   try {
+
+    // INITIALIZE FIREBASE
+    const { auth, db } = getFirebase();
+
+    // VERIFY AUTHENTICATION
     const authorization = req.headers.authorization || "";
 
     if (!authorization.startsWith("Bearer ")) {
-      return send(res, 401, { error: "Sign-in required" });
+      return send(res, 401, {
+        error: "Sign-in required"
+      });
     }
 
-    const decoded = await admin.auth().verifyIdToken(
+    const decoded = await auth.verifyIdToken(
       authorization.slice(7)
     );
 
     const uid = decoded.uid;
+
     const body = req.body || {};
     const action = body.action;
 
+    // ======================================
     // CREATE ROOM
+    // ======================================
+
     if (action === "create") {
-      const roomCode = crypto.randomBytes(16)
+
+      const roomCode = crypto
+        .randomBytes(16)
         .toString("hex")
         .toUpperCase();
 
       await db.ref(`rooms/${roomCode}`).set({
         personAUid: uid,
         personBUid: null,
+
         personA: null,
         personB: null,
+
         verdict: null,
         verdictStatus: "waiting",
+
         createdAt: Date.now()
       });
 
@@ -112,31 +175,51 @@ module.exports = async function handler(req, res) {
       });
     }
 
+    // ======================================
+    // VALIDATE ROOM CODE
+    // ======================================
+
     const roomCode = body.roomCode;
 
     if (
       typeof roomCode !== "string" ||
       !/^[A-F0-9]{32}$/.test(roomCode)
     ) {
-      return send(res, 400, { error: "Invalid room code" });
+      return send(res, 400, {
+        error: "Invalid room code"
+      });
     }
 
     const roomRef = db.ref(`rooms/${roomCode}`);
 
+    // ======================================
     // JOIN ROOM
-    if (action === "join") {
-      const result = await roomRef.transaction(room => {
-        if (!room || room.personAUid === uid) return;
+    // ======================================
 
-        if (room.personBUid && room.personBUid !== uid) {
+    if (action === "join") {
+
+      const result = await roomRef.transaction(room => {
+
+        if (!room || room.personAUid === uid) {
           return;
         }
 
-        if (Date.now() - room.createdAt > ROOM_LIFETIME) {
+        if (
+          room.personBUid &&
+          room.personBUid !== uid
+        ) {
+          return;
+        }
+
+        if (
+          Date.now() - room.createdAt >
+          ROOM_LIFETIME
+        ) {
           return;
         }
 
         room.personBUid = uid;
+
         return room;
       });
 
@@ -152,12 +235,17 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // VERIFY ROOM AND PARTICIPANT
+    // ======================================
+    // VERIFY ROOM
+    // ======================================
+
     const snapshot = await roomRef.get();
     const room = snapshot.val();
 
     if (!room) {
-      return send(res, 404, { error: "Room not found" });
+      return send(res, 404, {
+        error: "Room not found"
+      });
     }
 
     if (
@@ -165,13 +253,21 @@ module.exports = async function handler(req, res) {
       Date.now() - room.createdAt > ROOM_LIFETIME
     ) {
       await roomRef.remove();
-      return send(res, 410, { error: "This session has expired" });
+
+      return send(res, 410, {
+        error: "This session has expired"
+      });
     }
 
     let role = null;
 
-    if (room.personAUid === uid) role = "personA";
-    if (room.personBUid === uid) role = "personB";
+    if (room.personAUid === uid) {
+      role = "personA";
+    }
+
+    if (room.personBUid === uid) {
+      role = "personB";
+    }
 
     if (!role) {
       return send(res, 403, {
@@ -179,15 +275,30 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // DELETE ROOM AND ALL SUBMISSIONS
+    // ======================================
+    // DELETE ROOM
+    // ======================================
+
     if (action === "delete") {
+
       await roomRef.remove();
-      return send(res, 200, { deleted: true });
+
+      return send(res, 200, {
+        deleted: true
+      });
     }
 
+    // ======================================
     // SUBMIT PERSPECTIVE
+    // ======================================
+
     if (action === "submit") {
-      const { happened, felt, outcome } = body.submission || {};
+
+      const {
+        happened,
+        felt,
+        outcome
+      } = body.submission || {};
 
       if (
         typeof happened !== "string" ||
@@ -208,7 +319,10 @@ module.exports = async function handler(req, res) {
       const submissionRef = roomRef.child(role);
 
       const result = await submissionRef.transaction(current => {
-        if (current) return;
+
+        if (current) {
+          return;
+        }
 
         return {
           happened: happened.trim(),
@@ -224,21 +338,36 @@ module.exports = async function handler(req, res) {
         });
       }
 
-      return send(res, 200, { saved: true });
+      return send(res, 200, {
+        saved: true
+      });
     }
 
+    // ======================================
     // CHECK STATUS
+    // ======================================
+
     if (action === "status") {
+
       return send(res, 200, {
         role,
+
         submitted: Boolean(room[role]),
-        bothSubmitted: Boolean(room.personA && room.personB),
+
+        bothSubmitted: Boolean(
+          room.personA && room.personB
+        ),
+
         verdict: room.verdict || null
       });
     }
 
+    // ======================================
     // GENERATE MEDIATION
+    // ======================================
+
     if (action === "mediate") {
+
       if (!room.personA || !room.personB) {
         return send(res, 409, {
           error: "Both participants must submit first"
@@ -246,13 +375,23 @@ module.exports = async function handler(req, res) {
       }
 
       if (room.verdict) {
-        return send(res, 200, { verdict: room.verdict });
+        return send(res, 200, {
+          verdict: room.verdict
+        });
       }
 
+      const apiKey = process.env.GEMINI_API_KEY;
+
+      if (!apiKey) {
+        throw new Error("Missing GEMINI_API_KEY");
+      }
+
+      // GENERATION LOCK
       const lockRef = roomRef.child("verdictStatus");
       const lockId = crypto.randomUUID();
 
       const lock = await lockRef.transaction(current => {
+
         if (
           current &&
           current.state === "generating" &&
@@ -261,7 +400,10 @@ module.exports = async function handler(req, res) {
           return;
         }
 
-        if (current && current.state === "complete") {
+        if (
+          current &&
+          current.state === "complete"
+        ) {
           return;
         }
 
@@ -273,10 +415,15 @@ module.exports = async function handler(req, res) {
       });
 
       if (!lock.committed) {
-        const latest = await roomRef.child("verdict").get();
+
+        const latest = await roomRef
+          .child("verdict")
+          .get();
 
         if (latest.exists()) {
-          return send(res, 200, { verdict: latest.val() });
+          return send(res, 200, {
+            verdict: latest.val()
+          });
         }
 
         return send(res, 409, {
@@ -285,40 +432,74 @@ module.exports = async function handler(req, res) {
       }
 
       try {
+
         const userPrompt = `
 PERSON A:
-What happened: ${room.personA.happened}
-How they felt: ${room.personA.felt}
-Desired outcome: ${room.personA.outcome}
+
+What happened:
+${room.personA.happened}
+
+How they felt:
+${room.personA.felt}
+
+Desired outcome:
+${room.personA.outcome}
+
 
 PERSON B:
-What happened: ${room.personB.happened}
-How they felt: ${room.personB.felt}
-Desired outcome: ${room.personB.outcome}
+
+What happened:
+${room.personB.happened}
+
+How they felt:
+${room.personB.felt}
+
+Desired outcome:
+${room.personB.outcome}
 `;
 
         const response = await fetch(
           "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" +
-            encodeURIComponent(process.env.GEMINI_API_KEY),
+            encodeURIComponent(apiKey),
+
           {
             method: "POST",
+
             headers: {
               "Content-Type": "application/json"
             },
+
             signal: AbortSignal.timeout(50000),
+
             body: JSON.stringify({
+
               system_instruction: {
-                parts: [{ text: SYSTEM_PROMPT }]
+                parts: [
+                  { text: SYSTEM_PROMPT }
+                ]
               },
-              contents: [{
-                parts: [{ text: userPrompt }]
-              }]
+
+              contents: [
+                {
+                  parts: [
+                    { text: userPrompt }
+                  ]
+                }
+              ]
             })
           }
         );
 
         if (!response.ok) {
-          throw new Error("AI request failed");
+          const errorText = await response.text();
+
+          console.error(
+            "Gemini API status:",
+            response.status,
+            errorText.slice(0, 500)
+          );
+
+          throw new Error("Gemini API request failed");
         }
 
         const result = await response.json();
@@ -326,47 +507,76 @@ Desired outcome: ${room.personB.outcome}
         const verdict =
           result.candidates?.[0]?.content?.parts?.[0]?.text;
 
-        if (!verdict || typeof verdict !== "string") {
+        if (
+          !verdict ||
+          typeof verdict !== "string"
+        ) {
           throw new Error("AI response was empty");
         }
 
+        // VERIFY LOCK OWNERSHIP
         const currentLock = await lockRef.get();
 
-        if (currentLock.val()?.lockId !== lockId) {
+        if (
+          currentLock.val()?.lockId !== lockId
+        ) {
           return send(res, 409, {
             error: "Mediation lock expired. Please retry."
           });
         }
 
+        // SAVE VERDICT
         await roomRef.update({
+
           verdict,
+
           verdictStatus: {
             state: "complete"
           }
         });
 
-        return send(res, 200, { verdict });
+        return send(res, 200, {
+          verdict
+        });
 
       } catch (error) {
+
+        // RELEASE OUR LOCK
         await lockRef.transaction(current => {
-          if (!current || current.lockId !== lockId) {
+
+          if (
+            !current ||
+            current.lockId !== lockId
+          ) {
             return;
           }
 
-          return { state: "failed" };
+          return {
+            state: "failed"
+          };
         });
 
         throw error;
       }
     }
 
-    return send(res, 400, { error: "Unknown action" });
+    // ======================================
+    // UNKNOWN ACTION
+    // ======================================
+
+    return send(res, 400, {
+      error: "Unknown action"
+    });
 
   } catch (error) {
-    console.error("Mediator API error:", error.message);
+
+    console.error(
+      "Mediator API error:",
+      error.message
+    );
 
     return send(res, 500, {
-      error: "Request could not be completed. Please try again."
+      error: error.message || "Internal server error"
     });
   }
 };
