@@ -1,116 +1,72 @@
-  <!DOCTYPE html>  <html lang="en">  
-<head>  
-  <meta charset="UTF-8" />  
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />  
-  <title>AI Relationship Mediator</title>  
-  <link rel="stylesheet" href="style.css" />  
-</head>  
-<body>  
-  <div class="container">  
-    <h1>⚖️ AI Mediator</h1>  
-    <p class="subtitle">Blind submission. Neutral perspective.</p>  <!-- Step 1: Home / Create Room -->  
-<div id="setup-screen" class="card">  
-  <label for="api-key">Gemini API Key (saved only in your browser):</label>  
-  <input type="password" id="api-key" placeholder="Paste your Gemini API key here..." />  
-  <button id="create-room-btn">Create New Session Room</button>  
-</div>  
 
-<!-- Step 2: Room / Submission Screen -->  
-<div id="room-screen" class="card hidden">  
-  <div class="room-header">  
-    <span>Room Code: <strong id="display-room-code"></strong></span>  
-    <button id="copy-link-btn" class="secondary-btn">Copy Invite Link</button>  
-  </div>  
-  <p id="role-label" class="badge"></p>  
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Relationship Mediator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="container">
+    <h1>⚖️ AI Mediator</h1>
+    <p class="subtitle">Blind submission. Neutral perspective.</p>
 
-  <div id="form-area">  
-    <label for="what-happened">1. What happened? (Stick to the facts)</label>  
-    <textarea id="what-happened" rows="3" placeholder="Describe the situation..."></textarea>  
+    <section id="setup-screen" class="card">
+      <h2>Create a session</h2>
+      <p>Start a private session and invite another participant.</p>
+      <p class="status-text">
+        Both participants must agree before submitting their perspectives.
+      </p>
+      <button id="create-room-btn">Create New Session Room</button>
+    </section>
 
-    <label for="how-felt">2. How did it make you feel?</label>  
-    <textarea id="how-felt" rows="2" placeholder="I felt frustrated/ignored when..."></textarea>  
+    <section id="room-screen" class="card hidden">
+      <div class="room-header">
+        <span>Room Code: <strong id="display-room-code"></strong></span>
+        <button id="copy-link-btn" class="secondary-btn">
+          Copy Invite Link
+        </button>
+      </div>
 
-    <label for="desired-outcome">3. What outcome do you want?</label>  
-    <textarea id="desired-outcome" rows="2" placeholder="I just want us to..."></textarea>  
+      <p id="role-label" class="badge"></p>
 
-    <button id="submit-side-btn">Submit My Side</button>  
-  </div>  
+      <div id="form-area">
+        <label for="what-happened">1. What happened?</label>
+        <textarea id="what-happened" rows="3"
+          placeholder="Describe the situation..."></textarea>
 
-  <div id="waiting-area" class="hidden">  
-    <p class="status-text">⏳ Your side is locked in. Waiting for the other person to submit...</p>  
-  </div>  
-</div>  
+        <label for="how-felt">2. How did it make you feel?</label>
+        <textarea id="how-felt" rows="2"
+          placeholder="Describe your feelings..."></textarea>
 
-<!-- Step 3: Verdict Screen -->  
-<div id="verdict-screen" class="card hidden">  
-  <h2>Mediator's Breakdown</h2>  
-  <div id="verdict-content" class="verdict-box">Analyzing both sides...</div>  
-  <button onclick="window.location.href = window.location.pathname" class="secondary-btn">Start New Session</button>  
-</div>
+        <label for="desired-outcome">3. What outcome do you want?</label>
+        <textarea id="desired-outcome" rows="2"
+          placeholder="What would help resolve this?"></textarea>
 
-  </div>    <script type="module" src="app.js"></script>  </body>  
+        <button id="submit-side-btn">Submit My Side</button>
+      </div>
+
+      <div id="waiting-area" class="hidden">
+        <p class="status-text">
+          ⏳ Your submission is saved. Waiting for the other participant.
+        </p>
+      </div>
+    </section>
+
+    <section id="verdict-screen" class="card hidden">
+      <h2>Mediator's Breakdown</h2>
+      <div id="verdict-content" class="verdict-box">
+        Analyzing both perspectives...
+      </div>
+      <button id="new-session-btn" class="secondary-btn">
+        Start New Session
+      </button>
+    </section>
+
+    <p id="error-message" class="status-text" role="alert"></p>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
 </html>
-  
-  
-    
-    
-    
-    
-  
-  
-  
-  
-    
-⚖️ AI Mediator
-  
-    
-Blind submission. Neutral perspective.
-  
-
-<!-- Step 1: Home / Create Room -->  
-<div id="setup-screen" class="card">  
-  <label for="api-key">Gemini API Key (saved only in your browser):</label>  
-  <input type="password" id="api-key" placeholder="Paste your Gemini API key here..." />  
-  <button id="create-room-btn">Create New Session Room</button>  
-</div>  
-
-<!-- Step 2: Room / Submission Screen -->  
-<div id="room-screen" class="card hidden">  
-  <div class="room-header">  
-    <span>Room Code: <strong id="display-room-code"></strong></span>  
-    <button id="copy-link-btn" class="secondary-btn">Copy Invite Link</button>  
-  </div>  
-  <p id="role-label" class="badge"></p>  
-
-  <div id="form-area">  
-    <label for="what-happened">1. What happened? (Stick to the facts)</label>  
-    <textarea id="what-happened" rows="3" placeholder="Describe the situation..."></textarea>  
-
-    <label for="how-felt">2. How did it make you feel?</label>  
-    <textarea id="how-felt" rows="2" placeholder="I felt frustrated/ignored when..."></textarea>  
-
-    <label for="desired-outcome">3. What outcome do you want?</label>  
-    <textarea id="desired-outcome" rows="2" placeholder="I just want us to..."></textarea>  
-
-    <button id="submit-side-btn">Submit My Side</button>  
-  </div>  
-
-  <div id="waiting-area" class="hidden">  
-    <p class="status-text">⏳ Your side is locked in. Waiting for the other person to submit...</p>  
-  </div>  
-</div>  
-
-<!-- Step 3: Verdict Screen -->  
-<div id="verdict-screen" class="card hidden">  
-  <h2>Mediator's Breakdown</h2>  
-  <div id="verdict-content" class="verdict-box">Analyzing both sides...</div>  
-  <button onclick="window.location.href = window.location.pathname" class="secondary-btn">Start New Session</button>  
-</div>  
-
-
-  
-  
-    
-  
-
-
