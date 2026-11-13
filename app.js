@@ -1,10 +1,23 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-// PASTE YOUR FIREBASE CONFIG BELOW (Replace this whole object)
+import {
+  getDatabase,
+  ref,
+  set,
+  get,
+  onValue,
+  runTransaction
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+import {
+  getAuth,
+  signInAnonymously
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+// Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyB9ZuM5GS-5ZKZVHBQRzALikkah6o1hW8M",
+  apiKey: "YOUR_FIREBASE_API_KEY",
   authDomain: "ai-relationship-mediator-ae95e.firebaseapp.com",
   databaseURL: "https://ai-relationship-mediator-ae95e-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "ai-relationship-mediator-ae95e",
@@ -15,10 +28,12 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+const auth = getAuth(app);
 
-const urlParams = new URLSearchParams(window.location.search);
-let roomCode = urlParams.get("room");
-let role = roomCode ? "personB" : "personA";
+let currentUser = null;
+let roomCode = null;
+let role = null;
+let generating = false;
 
 const setupScreen = document.getElementById("setup-screen");
 const roomScreen = document.getElementById("room-screen");
@@ -26,122 +41,287 @@ const verdictScreen = document.getElementById("verdict-screen");
 const formArea = document.getElementById("form-area");
 const waitingArea = document.getElementById("waiting-area");
 
-if (roomCode) {
-enterRoom(roomCode, "personB");
+const createButton = document.getElementById("create-room-btn");
+const submitButton = document.getElementById("submit-side-btn");
+const copyButton = document.getElementById("copy-link-btn");
+const newSessionButton = document.getElementById("new-session-btn");
+
+const errorMessage = document.getElementById("error-message");
+
+function showError(message) {
+  errorMessage.textContent = message;
 }
 
-document.getElementById("create-room-btn").addEventListener("click", () => {
-const apiKey = document.getElementById("api-key").value.trim();
-if (!apiKey) return alert("Please enter your Gemini API key first.");
+function showRoom(code, userRole) {
+  setupScreen.classList.add("hidden");
+  verdictScreen.classList.add("hidden");
+  roomScreen.classList.remove("hidden");
 
-sessionStorage.setItem("gemini_api_key", apiKey);
-roomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+  document.getElementById("display-room-code").textContent = code;
 
-set(ref(db, rooms/${roomCode}), {
-apiKey: apiKey,
-createdAt: Date.now()
-});
-
-enterRoom(roomCode, "personA");
-});
-
-function enterRoom(code, userRole) {
-setupScreen.classList.add("hidden");
-roomScreen.classList.remove("hidden");
-document.getElementById("display-room-code").textContent = code;
-document.getElementById("role-label").textContent =
-userRole === "personA" ? "You are Person A (Room Creator)" : "You are Person B (Invited)";
-
-document.getElementById("copy-link-btn").addEventListener("click", () => {
-const inviteUrl = ${window.location.origin}${window.location.pathname}?room=${code};
-navigator.clipboard.writeText(inviteUrl);
-alert("Invite link copied! Send it to the other person.");
-});
-
-const roomRef = ref(db, rooms/${code});
-onValue(roomRef, async (snapshot) => {
-const data = snapshot.val();
-if (!data) return;
-
-if (data.verdict) {  
-  roomScreen.classList.add("hidden");  
-  verdictScreen.classList.remove("hidden");  
-  document.getElementById("verdict-content").textContent = data.verdict;  
-  return;  
-}  
-
-if (data.personA && data.personB && !data.verdict) {  
-  roomScreen.classList.add("hidden");  
-  verdictScreen.classList.remove("hidden");  
-
-  if (userRole === "personA") {  
-    const verdict = await generateVerdict(data.apiKey, data.personA, data.personB);  
-    update(roomRef, { verdict });  
-  }  
+  document.getElementById("role-label").textContent =
+    userRole === "personA"
+      ? "You are Person A (Room Creator)"
+      : "You are Person B (Invited)";
 }
 
-});
+function createRoomCode() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+
+  return Array.from(bytes)
+    .map(byte => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
 }
 
-document.getElementById("submit-side-btn").addEventListener("click", () => {
-const happened = document.getElementById("what-happened").value.trim();
-const felt = document.getElementById("how-felt").value.trim();
-const outcome = document.getElementById("desired-outcome").value.trim();
-
-if (!happened || !felt || !outcome) {
-return alert("Please fill out all three fields before submitting.");
-}
-
-update(ref(db, rooms/${roomCode}), {
-[role]: { happened, felt, outcome }
-});
-
-formArea.classList.add("hidden");
-waitingArea.classList.remove("hidden");
-});
-
-async function generateVerdict(apiKey, personA, personB) {
-const systemPrompt = `You are a neutral, empathetic relationship mediator. Two people submitted their perspectives separately without seeing what the other wrote.
-Analyze both sides objectively and respond using this exact structure:
-
-1. Core Misunderstanding: Summarize what each person is trying to communicate beneath the frustration.
-2. Blind Spots: Gently point out where each person might be missing the other's perspective, deflecting, or reacting defensively.
-3. Common Ground: Highlight what both people seem to want.
-4. Next Steps: Suggest 2 realistic compromises they can agree on right now.
-   Keep the tone calm, fair, and constructive. Do not declare a winner.`;
-
-const userPrompt = `
-PERSON A:
-
-- What happened: ${personA.happened}
-- How they felt: ${personA.felt}
-- Desired outcome: ${personA.outcome}
-
-PERSON B:
-
-- What happened: ${personB.happened}
-
-- How they felt: ${personB.felt}
-
-- Desired outcome: ${personB.outcome}
-  `;
-
+async function startApp() {
   try {
-  const response = await fetch(
-  https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey},
-  {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-  system_instruction: { parts: [{ text: systemPrompt }] },
-  contents: [{ parts: [{ text: userPrompt }] }]
-  })
-  }
-  );
+    const result = await signInAnonymously(auth);
+    currentUser = result.user;
 
-  const result = await response.json();
-  return result.candidates?.[0]?.content?.parts?.[0]?.text || "Could not generate response. Check your API key.";
-  } catch (err) {
-  return "Error connecting to Gemini API: " + err.message;
+    const params = new URLSearchParams(window.location.search);
+    const invitedRoom = params.get("room");
+
+    if (invitedRoom) {
+      await joinRoom(invitedRoom.toUpperCase());
+    }
+  } catch (error) {
+    showError("Could not sign in. Please refresh and try again.");
+    console.error(error);
   }
+}
+
+async function createRoom() {
+  try {
+    showError("");
+
+    if (!currentUser) {
+      throw new Error("Authentication is not ready.");
+    }
+
+    createButton.disabled = true;
+
+    roomCode = createRoomCode();
+    role = "personA";
+
+    await set(ref(db, `rooms/${roomCode}`), {
+      participants: {
+        [currentUser.uid]: "personA"
+      },
+      createdAt: Date.now(),
+      status: "open"
+    });
+
+    history.replaceState(null, "", `?room=${roomCode}`);
+    showRoom(roomCode, role);
+    listenToRoom();
+  } catch (error) {
+    showError("Could not create room. Please try again.");
+    console.error(error);
+  } finally {
+    createButton.disabled = false;
   }
+}
+
+async function joinRoom(code) {
+  try {
+    showError("");
+
+    if (!/^[A-F0-9]{32}$/.test(code)) {
+      throw new Error("Invalid room code.");
+    }
+
+    const roomRef = ref(db, `rooms/${code}`);
+    const snapshot = await get(roomRef);
+
+    if (!snapshot.exists()) {
+      throw new Error("This room does not exist.");
+    }
+
+    const result = await runTransaction(
+      ref(db, `rooms/${code}/participants`),
+      current => {
+        current = current || {};
+
+        if (current[currentUser.uid]) {
+          return current;
+        }
+
+        if (Object.keys(current).length >= 2) {
+          return;
+        }
+
+        return {
+          ...current,
+          [currentUser.uid]: "personB"
+        };
+      }
+    );
+
+    if (!result.committed) {
+      throw new Error("This room is already full.");
+    }
+
+    const participants = result.snapshot.val();
+    role = participants[currentUser.uid];
+
+    if (role !== "personA" && role !== "personB") {
+      throw new Error("Could not identify your room role.");
+    }
+
+    roomCode = code;
+    showRoom(code, role);
+    listenToRoom();
+  } catch (error) {
+    showError(error.message || "Could not join this room.");
+    console.error(error);
+  }
+}
+
+function listenToRoom() {
+  const roomRef = ref(db, `rooms/${roomCode}`);
+
+  onValue(roomRef, async snapshot => {
+    const data = snapshot.val();
+
+    if (!data) {
+      showError("This room is no longer available.");
+      return;
+    }
+
+    if (data.verdict) {
+      roomScreen.classList.add("hidden");
+      verdictScreen.classList.remove("hidden");
+
+      document.getElementById("verdict-content").textContent =
+        data.verdict;
+
+      return;
+    }
+
+    const mySubmission = data[role];
+
+    if (mySubmission) {
+      formArea.classList.add("hidden");
+      waitingArea.classList.remove("hidden");
+    }
+
+    if (
+      data.personA &&
+      data.personB &&
+      role === "personA" &&
+      !generating
+    ) {
+      generating = true;
+      await requestMediation();
+    }
+  });
+}
+
+async function requestMediation() {
+  try {
+    const idToken = await currentUser.getIdToken();
+
+    const response = await fetch("/api/mediate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${idToken}`
+      },
+      body: JSON.stringify({ roomCode })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "Mediation request failed.");
+    }
+
+    if (result.verdict) {
+      document.getElementById("verdict-content").textContent =
+        result.verdict;
+
+      roomScreen.classList.add("hidden");
+      verdictScreen.classList.remove("hidden");
+    }
+  } catch (error) {
+    generating = false;
+    showError(
+      "Mediation could not be completed. Please try again later."
+    );
+    console.error(error);
+  }
+}
+
+async function submitSide() {
+  try {
+    showError("");
+
+    if (!roomCode || !role || !currentUser) {
+      throw new Error("Room connection is not ready.");
+    }
+
+    const happened =
+      document.getElementById("what-happened").value.trim();
+
+    const felt =
+      document.getElementById("how-felt").value.trim();
+
+    const outcome =
+      document.getElementById("desired-outcome").value.trim();
+
+    if (!happened || !felt || !outcome) {
+      throw new Error("Please complete all three fields.");
+    }
+
+    if (
+      happened.length > 2000 ||
+      felt.length > 1000 ||
+      outcome.length > 1000
+    ) {
+      throw new Error("Please shorten your answers before submitting.");
+    }
+
+    submitButton.disabled = true;
+
+    await set(
+      ref(db, `rooms/${roomCode}/${role}`),
+      {
+        happened,
+        felt,
+        outcome,
+        submittedAt: Date.now()
+      }
+    );
+
+    formArea.classList.add("hidden");
+    waitingArea.classList.remove("hidden");
+  } catch (error) {
+    showError(error.message || "Submission failed.");
+    console.error(error);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+copyButton.addEventListener("click", async () => {
+  try {
+    const inviteUrl =
+      `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+
+    await navigator.clipboard.writeText(inviteUrl);
+    alert("Invite link copied!");
+  } catch (error) {
+    showError("Could not copy the invite link.");
+  }
+});
+
+createButton.addEventListener("click", createRoom);
+submitButton.addEventListener("click", submitSide);
+
+newSessionButton.addEventListener("click", () => {
+  window.location.href = window.location.pathname;
+});
+
+startApp();
