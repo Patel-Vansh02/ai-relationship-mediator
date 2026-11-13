@@ -1,21 +1,17 @@
+JavaScript
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-
-import {
-  getDatabase,
-  ref,
-  set,
-  get,
-  onValue,
-  runTransaction
-} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 import {
   getAuth,
   signInAnonymously
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
-// Firebase configuration
+// 1. Vercel backend
+const API_BASE_URL =
+  "https://ai-relationship-mediator-ga7mdibff-gt-gng.vercel.app";
+
+// 2. Firebase configuration
 const firebaseConfig = {
   apiKey: "YOUR_FIREBASE_API_KEY",
   authDomain: "ai-relationship-mediator-ae95e.firebaseapp.com",
@@ -27,17 +23,19 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
 const auth = getAuth(app);
 
 let currentUser = null;
 let roomCode = null;
 let role = null;
+let pollTimer = null;
+let checkingStatus = false;
 let generating = false;
 
 const setupScreen = document.getElementById("setup-screen");
 const roomScreen = document.getElementById("room-screen");
 const verdictScreen = document.getElementById("verdict-screen");
+
 const formArea = document.getElementById("form-area");
 const waitingArea = document.getElementById("waiting-area");
 
@@ -65,60 +63,52 @@ function showRoom(code, userRole) {
       : "You are Person B (Invited)";
 }
 
-function createRoomCode() {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
+async function apiRequest(action, extra = {}) {
+  const token = await currentUser.getIdToken();
 
-  return Array.from(bytes)
-    .map(byte => byte.toString(16).padStart(2, "0"))
-    .join("")
-    .toUpperCase();
-}
+  const response = await fetch(`${API_BASE_URL}/api/mediate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      action,
+      roomCode,
+      ...extra
+    })
+  });
 
-async function startApp() {
-  try {
-    const result = await signInAnonymously(auth);
-    currentUser = result.user;
+  const result = await response.json();
 
-    const params = new URLSearchParams(window.location.search);
-    const invitedRoom = params.get("room");
-
-    if (invitedRoom) {
-      await joinRoom(invitedRoom.toUpperCase());
-    }
-  } catch (error) {
-    showError("Could not sign in. Please refresh and try again.");
-    console.error(error);
+  if (!response.ok) {
+    const error = new Error(
+      result.error || "The request could not be completed."
+    );
+    error.status = response.status;
+    throw error;
   }
+
+  return result;
 }
 
 async function createRoom() {
   try {
     showError("");
-
-    if (!currentUser) {
-      throw new Error("Authentication is not ready.");
-    }
-
     createButton.disabled = true;
 
-    roomCode = createRoomCode();
-    role = "personA";
+    const result = await apiRequest("create");
 
-    await set(ref(db, `rooms/${roomCode}`), {
-      participants: {
-        [currentUser.uid]: "personA"
-      },
-      createdAt: Date.now(),
-      status: "open"
-    });
+    roomCode = result.roomCode;
+    role = result.role;
 
     history.replaceState(null, "", `?room=${roomCode}`);
+
     showRoom(roomCode, role);
-    listenToRoom();
+    startPolling();
+
   } catch (error) {
-    showError("Could not create room. Please try again.");
-    console.error(error);
+    showError(error.message);
   } finally {
     createButton.disabled = false;
   }
@@ -129,138 +119,28 @@ async function joinRoom(code) {
     showError("");
 
     if (!/^[A-F0-9]{32}$/.test(code)) {
-      throw new Error("Invalid room code.");
-    }
-
-    const roomRef = ref(db, `rooms/${code}`);
-    const snapshot = await get(roomRef);
-
-    if (!snapshot.exists()) {
-      throw new Error("This room does not exist.");
-    }
-
-    const result = await runTransaction(
-      ref(db, `rooms/${code}/participants`),
-      current => {
-        current = current || {};
-
-        if (current[currentUser.uid]) {
-          return current;
-        }
-
-        if (Object.keys(current).length >= 2) {
-          return;
-        }
-
-        return {
-          ...current,
-          [currentUser.uid]: "personB"
-        };
-      }
-    );
-
-    if (!result.committed) {
-      throw new Error("This room is already full.");
-    }
-
-    const participants = result.snapshot.val();
-    role = participants[currentUser.uid];
-
-    if (role !== "personA" && role !== "personB") {
-      throw new Error("Could not identify your room role.");
+      throw new Error("Invalid invitation link.");
     }
 
     roomCode = code;
-    showRoom(code, role);
-    listenToRoom();
+
+    const result = await apiRequest("join");
+
+    role = result.role;
+
+    showRoom(roomCode, role);
+    startPolling();
+
   } catch (error) {
-    showError(error.message || "Could not join this room.");
-    console.error(error);
-  }
-}
-
-function listenToRoom() {
-  const roomRef = ref(db, `rooms/${roomCode}`);
-
-  onValue(roomRef, async snapshot => {
-    const data = snapshot.val();
-
-    if (!data) {
-      showError("This room is no longer available.");
-      return;
-    }
-
-    if (data.verdict) {
-      roomScreen.classList.add("hidden");
-      verdictScreen.classList.remove("hidden");
-
-      document.getElementById("verdict-content").textContent =
-        data.verdict;
-
-      return;
-    }
-
-    const mySubmission = data[role];
-
-    if (mySubmission) {
-      formArea.classList.add("hidden");
-      waitingArea.classList.remove("hidden");
-    }
-
-    if (
-      data.personA &&
-      data.personB &&
-      role === "personA" &&
-      !generating
-    ) {
-      generating = true;
-      await requestMediation();
-    }
-  });
-}
-
-async function requestMediation() {
-  try {
-    const idToken = await currentUser.getIdToken();
-
-    const response = await fetch("/api/mediate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${idToken}`
-      },
-      body: JSON.stringify({ roomCode })
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error || "Mediation request failed.");
-    }
-
-    if (result.verdict) {
-      document.getElementById("verdict-content").textContent =
-        result.verdict;
-
-      roomScreen.classList.add("hidden");
-      verdictScreen.classList.remove("hidden");
-    }
-  } catch (error) {
-    generating = false;
-    showError(
-      "Mediation could not be completed. Please try again later."
-    );
-    console.error(error);
+    roomCode = null;
+    role = null;
+    showError(error.message);
   }
 }
 
 async function submitSide() {
   try {
     showError("");
-
-    if (!roomCode || !role || !currentUser) {
-      throw new Error("Room connection is not ready.");
-    }
 
     const happened =
       document.getElementById("what-happened").value.trim();
@@ -280,28 +160,100 @@ async function submitSide() {
       felt.length > 1000 ||
       outcome.length > 1000
     ) {
-      throw new Error("Please shorten your answers before submitting.");
+      throw new Error("Please shorten your answers.");
     }
 
     submitButton.disabled = true;
 
-    await set(
-      ref(db, `rooms/${roomCode}/${role}`),
-      {
+    await apiRequest("submit", {
+      submission: {
         happened,
         felt,
-        outcome,
-        submittedAt: Date.now()
+        outcome
       }
-    );
+    });
 
     formArea.classList.add("hidden");
     waitingArea.classList.remove("hidden");
+
+    startPolling();
+
   } catch (error) {
-    showError(error.message || "Submission failed.");
-    console.error(error);
+    showError(error.message);
   } finally {
     submitButton.disabled = false;
+  }
+}
+
+function showVerdict(verdict) {
+  if (!verdict) return;
+
+  stopPolling();
+
+  document.getElementById("verdict-content").textContent = verdict;
+
+  roomScreen.classList.add("hidden");
+  verdictScreen.classList.remove("hidden");
+}
+
+async function checkStatus() {
+  if (!roomCode || checkingStatus) return;
+
+  checkingStatus = true;
+
+  try {
+    const result = await apiRequest("status");
+
+    if (result.verdict) {
+      showVerdict(result.verdict);
+      return;
+    }
+
+    if (result.submitted) {
+      formArea.classList.add("hidden");
+      waitingArea.classList.remove("hidden");
+    }
+
+    if (
+      result.bothSubmitted &&
+      role === "personA" &&
+      !generating
+    ) {
+      generating = true;
+
+      try {
+        const mediation = await apiRequest("mediate");
+
+        if (mediation.verdict) {
+          showVerdict(mediation.verdict);
+        }
+      } catch (error) {
+        if (error.status !== 409) {
+          showError("Mediation could not be completed. Please try again.");
+        }
+      } finally {
+        generating = false;
+      }
+    }
+
+  } catch (error) {
+    showError("Connection issue. Retrying...");
+  } finally {
+    checkingStatus = false;
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  checkStatus();
+
+  pollTimer = window.setInterval(checkStatus, 3000);
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
   }
 }
 
@@ -311,9 +263,9 @@ copyButton.addEventListener("click", async () => {
       `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
 
     await navigator.clipboard.writeText(inviteUrl);
-    alert("Invite link copied!");
+    showError("Invite link copied!");
   } catch (error) {
-    showError("Could not copy the invite link.");
+    showError("Could not copy the invitation link.");
   }
 });
 
@@ -321,7 +273,26 @@ createButton.addEventListener("click", createRoom);
 submitButton.addEventListener("click", submitSide);
 
 newSessionButton.addEventListener("click", () => {
+  stopPolling();
   window.location.href = window.location.pathname;
 });
+
+async function startApp() {
+  try {
+    const result = await signInAnonymously(auth);
+    currentUser = result.user;
+
+    const params = new URLSearchParams(window.location.search);
+    const invitedRoom = params.get("room");
+
+    if (invitedRoom) {
+      await joinRoom(invitedRoom.toUpperCase());
+    }
+
+  } catch (error) {
+    showError("Could not connect. Please refresh and try again.");
+    console.error(error);
+  }
+}
 
 startApp();
