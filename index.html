@@ -4,69 +4,148 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
   <title>AI Relationship Mediator</title>
+
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <main class="container">
-    <h1>⚖️ AI Mediator</h1>
-    <p class="subtitle">Blind submission. Neutral perspective.</p>
 
+    <h1>⚖️ AI Mediator</h1>
+
+    <p class="subtitle">
+      Blind submission. Neutral perspective.
+    </p>
+
+    <!-- SETUP SCREEN -->
     <section id="setup-screen" class="card">
+
       <h2>Create a session</h2>
-      <p>Start a private session and invite another participant.</p>
+
+      <p>
+        Start a private session and invite another participant.
+      </p>
+
       <p class="status-text">
         Both participants must agree before submitting their perspectives.
       </p>
-      <button id="create-room-btn">Create New Session Room</button>
+
+      <button
+        type="button"
+        id="create-room-btn">
+        Create New Session Room
+      </button>
+
     </section>
 
+    <!-- ROOM SCREEN -->
     <section id="room-screen" class="card hidden">
+
       <div class="room-header">
-        <span>Room Code: <strong id="display-room-code"></strong></span>
-        <button id="copy-link-btn" class="secondary-btn">
+
+        <span>
+          Room Code:
+          <strong id="display-room-code"></strong>
+        </span>
+
+        <button
+          type="button"
+          id="copy-link-btn"
+          class="secondary-btn">
           Copy Invite Link
         </button>
+
       </div>
 
       <p id="role-label" class="badge"></p>
 
+      <!-- SUBMISSION FORM -->
       <div id="form-area">
-        <label for="what-happened">1. What happened?</label>
-        <textarea id="what-happened" rows="3"
-          placeholder="Describe the situation..."></textarea>
 
-        <label for="how-felt">2. How did it make you feel?</label>
-        <textarea id="how-felt" rows="2"
-          placeholder="Describe your feelings..."></textarea>
+        <label for="what-happened">
+          1. What happened?
+        </label>
 
-        <label for="desired-outcome">3. What outcome do you want?</label>
-        <textarea id="desired-outcome" rows="2"
-          placeholder="What would help resolve this?"></textarea>
+        <textarea
+          id="what-happened"
+          rows="3"
+          placeholder="Describe the situation...">
+        </textarea>
 
-        <button id="submit-side-btn">Submit My Side</button>
+        <label for="how-felt">
+          2. How did it make you feel?
+        </label>
+
+        <textarea
+          id="how-felt"
+          rows="2"
+          placeholder="Describe your feelings...">
+        </textarea>
+
+        <label for="desired-outcome">
+          3. What outcome do you want?
+        </label>
+
+        <textarea
+          id="desired-outcome"
+          rows="2"
+          placeholder="What would help resolve this?">
+        </textarea>
+
+        <button
+          type="button"
+          id="submit-side-btn">
+          Submit My Side
+        </button>
+
       </div>
 
+      <!-- WAITING SCREEN -->
       <div id="waiting-area" class="hidden">
+
         <p class="status-text">
-          ⏳ Your submission is saved. Waiting for the other participant.
+          ⏳ Your submission is saved.
+          Waiting for the other participant.
         </p>
+
       </div>
+
     </section>
 
+    <!-- VERDICT SCREEN -->
     <section id="verdict-screen" class="card hidden">
+
       <h2>Mediator's Breakdown</h2>
-      <div id="verdict-content" class="verdict-box">
+
+      <div
+        id="verdict-content"
+        class="verdict-box">
         Analyzing both perspectives...
       </div>
-      <button id="new-session-btn" class="secondary-btn">
+
+      <button
+        type="button"
+        id="new-session-btn"
+        class="secondary-btn">
         Start New Session
       </button>
+
     </section>
 
-    <p id="error-message" class="status-text" role="alert"></p>
+    <!-- ERROR MESSAGE -->
+    <p
+      id="error-message"
+      class="status-text"
+      role="alert"
+      aria-live="polite">
+    </p>
+
   </main>
 
+  <!-- JAVASCRIPT -->
   <script type="module" src="app.js"></script>
+
 </body>
 </html>
