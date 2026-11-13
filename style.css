@@ -1,1 +1,117 @@
+- {
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
 
+body {
+background: #0f172a;
+color: #f8fafc;
+margin: 0;
+padding: 20px;
+display: flex;
+justify-content: center;
+}
+
+.container {
+max-width: 600px;
+width: 100%;
+}
+
+h1 {
+text-align: center;
+margin-bottom: 5px;
+}
+
+.subtitle {
+text-align: center;
+color: #94a3b8;
+margin-bottom: 25px;
+}
+
+.card {
+background: #1e293b;
+padding: 24px;
+border-radius: 12px;
+box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+}
+
+.hidden {
+display: none;
+}
+
+label {
+display: block;
+margin-top: 15px;
+margin-bottom: 6px;
+font-weight: 600;
+font-size: 0.9rem;
+color: #cbd5e1;
+}
+
+input, textarea {
+width: 100%;
+padding: 12px;
+border-radius: 8px;
+border: 1px solid #334155;
+background: #0f172a;
+color: #f8fafc;
+font-size: 1rem;
+}
+
+button {
+width: 100%;
+padding: 12px;
+margin-top: 20px;
+border: none;
+border-radius: 8px;
+background: #3b82f6;
+color: white;
+font-size: 1rem;
+font-weight: bold;
+cursor: pointer;
+}
+
+button:hover {
+background: #2563eb;
+}
+
+.secondary-btn {
+background: #334155;
+width: auto;
+margin-top: 0;
+padding: 8px 14px;
+font-size: 0.85rem;
+}
+
+.room-header {
+display: flex;
+justify-content: space-between;
+align-items: center;
+border-bottom: 1px solid #334155;
+padding-bottom: 12px;
+}
+
+.badge {
+display: inline-block;
+background: #0284c7;
+padding: 4px 10px;
+border-radius: 6px;
+font-size: 0.85rem;
+font-weight: bold;
+}
+
+.status-text {
+text-align: center;
+padding: 30px 0;
+color: #fbbf24;
+font-weight: 500;
+}
+
+.verdict-box {
+background: #0f172a;
+padding: 18px;
+border-radius: 8px;
+line-height: 1.6;
+white-space: pre-wrap;
+margin-top: 15px;
+}
