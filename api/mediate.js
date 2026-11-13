@@ -1,5 +1,6 @@
 
 const admin = require("firebase-admin");
+const crypto = require("crypto");
 
 if (!admin.apps.length) {
   const serviceAccount = JSON.parse(
@@ -14,13 +15,16 @@ if (!admin.apps.length) {
 
 const db = admin.database();
 
+const ROOM_LIFETIME = 7 * 24 * 60 * 60 * 1000;
+const LOCK_LIFETIME = 90 * 1000;
+
 const SYSTEM_PROMPT = `
 You are a neutral, empathetic communication assistant.
 
 Treat both participants fairly. Do not declare a winner,
 make assumptions, diagnose anyone, or take sides.
 
-Identify:
+Use these headings:
 1. Core Misunderstanding
 2. Each Person's Perspective
 3. Common Ground
@@ -44,16 +48,16 @@ module.exports = async function handler(req, res) {
   const allowedOrigin = process.env.FRONTEND_ORIGIN;
   const origin = req.headers.origin;
 
-  if (allowedOrigin && origin === allowedOrigin) {
+  if (allowedOrigin && origin !== allowedOrigin) {
+    return send(res, 403, { error: "Origin not allowed" });
+  }
+
+  if (allowedOrigin) {
     res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
     res.setHeader("Vary", "Origin");
   }
 
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "POST, OPTIONS"
-  );
-
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader(
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization"
@@ -67,10 +71,6 @@ module.exports = async function handler(req, res) {
     return send(res, 405, { error: "Method not allowed" });
   }
 
-  if (allowedOrigin && origin !== allowedOrigin) {
-    return send(res, 403, { error: "Origin not allowed" });
-  }
-
   try {
     const authorization = req.headers.authorization || "";
 
@@ -78,17 +78,17 @@ module.exports = async function handler(req, res) {
       return send(res, 401, { error: "Sign-in required" });
     }
 
-    const token = authorization.slice(7);
-    const decoded = await admin.auth().verifyIdToken(token);
-    const uid = decoded.uid;
+    const decoded = await admin.auth().verifyIdToken(
+      authorization.slice(7)
+    );
 
+    const uid = decoded.uid;
     const body = req.body || {};
     const action = body.action;
 
     // CREATE ROOM
     if (action === "create") {
-      const roomCode = require("crypto")
-        .randomBytes(16)
+      const roomCode = crypto.randomBytes(16)
         .toString("hex")
         .toUpperCase();
 
@@ -98,8 +98,8 @@ module.exports = async function handler(req, res) {
         personA: null,
         personB: null,
         verdict: null,
-        createdAt: Date.now(),
-        status: "open"
+        verdictStatus: "waiting",
+        createdAt: Date.now()
       });
 
       return send(res, 200, {
@@ -122,11 +122,13 @@ module.exports = async function handler(req, res) {
     // JOIN ROOM
     if (action === "join") {
       const result = await roomRef.transaction(room => {
-        if (!room || room.personAUid === uid) {
+        if (!room || room.personAUid === uid) return;
+
+        if (room.personBUid && room.personBUid !== uid) {
           return;
         }
 
-        if (room.personBUid && room.personBUid !== uid) {
+        if (Date.now() - room.createdAt > ROOM_LIFETIME) {
           return;
         }
 
@@ -136,7 +138,7 @@ module.exports = async function handler(req, res) {
 
       if (!result.committed) {
         return send(res, 409, {
-          error: "Room unavailable or already full"
+          error: "Room unavailable, expired, or already full"
         });
       }
 
@@ -146,12 +148,20 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // CHECK ROOM ACCESS
+    // VERIFY ROOM AND PARTICIPANT
     const snapshot = await roomRef.get();
     const room = snapshot.val();
 
     if (!room) {
       return send(res, 404, { error: "Room not found" });
+    }
+
+    if (
+      !room.createdAt ||
+      Date.now() - room.createdAt > ROOM_LIFETIME
+    ) {
+      await roomRef.remove();
+      return send(res, 410, { error: "This session has expired" });
     }
 
     let role = null;
@@ -160,7 +170,15 @@ module.exports = async function handler(req, res) {
     if (room.personBUid === uid) role = "personB";
 
     if (!role) {
-      return send(res, 403, { error: "Not a room participant" });
+      return send(res, 403, {
+        error: "You are not a participant in this room"
+      });
+    }
+
+    // DELETE ROOM AND ALL SUBMISSIONS
+    if (action === "delete") {
+      await roomRef.remove();
+      return send(res, 200, { deleted: true });
     }
 
     // SUBMIT PERSPECTIVE
@@ -187,6 +205,7 @@ module.exports = async function handler(req, res) {
 
       const result = await submissionRef.transaction(current => {
         if (current) return;
+
         return {
           happened: happened.trim(),
           felt: felt.trim(),
@@ -226,16 +245,36 @@ module.exports = async function handler(req, res) {
         return send(res, 200, { verdict: room.verdict });
       }
 
-      const lock = await roomRef.child("verdictStatus").transaction(
-        current => {
-          if (current === "generating" || current === "complete") {
-            return;
-          }
-          return "generating";
+      const lockRef = roomRef.child("verdictStatus");
+      const lockId = crypto.randomUUID();
+
+      const lock = await lockRef.transaction(current => {
+        if (
+          current &&
+          current.state === "generating" &&
+          current.leaseUntil > Date.now()
+        ) {
+          return;
         }
-      );
+
+        if (current && current.state === "complete") {
+          return;
+        }
+
+        return {
+          state: "generating",
+          lockId,
+          leaseUntil: Date.now() + LOCK_LIFETIME
+        };
+      });
 
       if (!lock.committed) {
+        const latest = await roomRef.child("verdict").get();
+
+        if (latest.exists()) {
+          return send(res, 200, { verdict: latest.val() });
+        }
+
         return send(res, 409, {
           error: "Mediation is already being processed"
         });
@@ -262,6 +301,7 @@ Desired outcome: ${room.personB.outcome}
             headers: {
               "Content-Type": "application/json"
             },
+            signal: AbortSignal.timeout(50000),
             body: JSON.stringify({
               system_instruction: {
                 parts: [{ text: SYSTEM_PROMPT }]
@@ -282,19 +322,35 @@ Desired outcome: ${room.personB.outcome}
         const verdict =
           result.candidates?.[0]?.content?.parts?.[0]?.text;
 
-        if (!verdict) {
+        if (!verdict || typeof verdict !== "string") {
           throw new Error("AI response was empty");
+        }
+
+        const currentLock = await lockRef.get();
+
+        if (currentLock.val()?.lockId !== lockId) {
+          return send(res, 409, {
+            error: "Mediation lock expired. Please retry."
+          });
         }
 
         await roomRef.update({
           verdict,
-          verdictStatus: "complete"
+          verdictStatus: {
+            state: "complete"
+          }
         });
 
         return send(res, 200, { verdict });
 
       } catch (error) {
-        await roomRef.child("verdictStatus").set("failed");
+        await lockRef.transaction(current => {
+          if (!current || current.lockId !== lockId) {
+            return;
+          }
+
+          return { state: "failed" };
+        });
 
         throw error;
       }
