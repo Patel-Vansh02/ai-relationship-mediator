@@ -3,7 +3,11 @@ const admin = require("firebase-admin");
 const crypto = require("crypto");
 
 if (!admin.apps.length) {
-  const serviceAccount = JSON.parse(
+  console.log(
+  "Firebase service account present:",
+  Boolean(process.env.FIREBASE_SERVICE_ACCOUNT)
+);
+const serviceAccount = JSON.parse(
     process.env.FIREBASE_SERVICE_ACCOUNT
   );
 
