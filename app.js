@@ -13,7 +13,7 @@ const API_BASE_URL =
 
 // 2. Firebase configuration
 const firebaseConfig = {
-  apiKey: "481ace625c543edc1a6e15698c277c3841683c73",
+  apiKey: "AIzaSyB9ZuM5GS-5ZKZVHBQRzALikkah6o1hW8M",
   authDomain: "ai-relationship-mediator-ae95e.firebaseapp.com",
   databaseURL: "https://ai-relationship-mediator-ae95e-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "ai-relationship-mediator-ae95e",
