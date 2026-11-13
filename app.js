@@ -4,13 +4,13 @@ import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/
 
 // PASTE YOUR FIREBASE CONFIG BELOW (Replace this whole object)
 const firebaseConfig = {
-apiKey: "YOUR_FIREBASE_API_KEY",
-authDomain: "YOUR_PROJECT.firebaseapp.com",
-databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
-projectId: "YOUR_PROJECT",
-storageBucket: "YOUR_PROJECT.appspot.com",
-messagingSenderId: "123456789",
-appId: "1:123456789:web:abcdef"
+  apiKey: "AIzaSyB9ZuM5GS-5ZKZVHBQRzALikkah6o1hW8M",
+  authDomain: "ai-relationship-mediator-ae95e.firebaseapp.com",
+  databaseURL: "https://ai-relationship-mediator-ae95e-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "ai-relationship-mediator-ae95e",
+  storageBucket: "ai-relationship-mediator-ae95e.firebasestorage.app",
+  messagingSenderId: "41520836304",
+  appId: "1:41520836304:web:0b34bbe5502d556f7678d5"
 };
 
 const app = initializeApp(firebaseConfig);
