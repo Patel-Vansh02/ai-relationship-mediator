@@ -276,11 +276,14 @@ newSessionButton.addEventListener("click", () => {
   stopPolling();
   window.location.href = window.location.pathname;
 });
-
 async function startApp() {
   try {
+    console.log("Starting app...");
+
     const result = await signInAnonymously(auth);
     currentUser = result.user;
+
+    console.log("Firebase authentication successful:", currentUser.uid);
 
     const params = new URLSearchParams(window.location.search);
     const invitedRoom = params.get("room");
@@ -290,8 +293,8 @@ async function startApp() {
     }
 
   } catch (error) {
-    showError("Could not connect. Please refresh and try again.");
-    console.error(error);
+    console.error("Firebase startup error:", error);
+    showError("Firebase error: " + error.message);
   }
 }
 
